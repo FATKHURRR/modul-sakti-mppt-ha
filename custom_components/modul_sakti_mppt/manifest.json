@@ -1,0 +1,10 @@
+{
+  "domain": "modul_sakti_mppt",
+  "name": "Modul Sakti MPPT",
+  "codeowners": ["@FATKHURRR"],
+  "config_flow": true,
+  "documentation": "https://github.com/FATKHURRR/modul-sakti-mppt",
+  "issue_tracker": "https://github.com/FATKHURRR/modul-sakti-mppt/issues",
+  "iot_class": "cloud_push",
+  "version": "1.0.0"
+}
