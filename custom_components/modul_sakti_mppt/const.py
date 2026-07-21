@@ -12,14 +12,14 @@ SIGNAL_NEW_KEYS = f"{DOMAIN}_new_keys_{{entry_id}}"
 # host/port/credentials by hand.
 SERVERS = {
     "server1": {
-        "label": "Server 1 (broker.emqx.io)",
+        "label": "Server 1",
         "host": "broker.emqx.io",
         "port": 1883,
         "username": "emqx",
         "password": "emqx",
     },
     "server2": {
-        "label": "Server 2 (public.cloud.shiftr.io)",
+        "label": "Server 2",
         "host": "public.cloud.shiftr.io",
         "port": 1883,
         "username": "public",
