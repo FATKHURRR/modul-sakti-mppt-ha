@@ -5,7 +5,6 @@ Assistant over MQTT, with no manual YAML.
 
 ## Features
 
-- Config flow only — no YAML.
 - **Multi device**: add the integration again for each additional module;
   each entry only asks for a broker preset and the **Module ID**.
 - Auto-creates sensors for battery/PV voltage, current, power, peak power,
@@ -15,8 +14,7 @@ Assistant over MQTT, with no manual YAML.
   warning / fault, plus every alarm and fault flag the module reports
   (created dynamically the first time each one is seen — no need to know
   them in advance).
-- Subscribes to `mpptMon/<module_id>/TX`, matching the module's own web
-  dashboard topic pattern.
+
 
 ## Installation (HACS)
 
