@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Add Modul Sakti MPPT",
-        "description": "Pick the MQTT broker used by your MPPT module and enter its module ID (the same ID used as the URL ?id= parameter on the web dashboard).",
+        "description": "Pick the Server used by your MPPT module and enter its module ID (the same ID used on the web Monitoring).",
         "data": {
           "server": "Broker",
           "module_id": "Module ID"
