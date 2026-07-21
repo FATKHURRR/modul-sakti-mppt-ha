@@ -5,15 +5,11 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Callable
+from typing import Any
 
 try:
-    # Prefer an already-installed paho-mqtt (e.g. the one Home Assistant's
-    # core mqtt integration already depends on), if one is importable.
     import paho.mqtt.client as mqtt
 except ImportError:
-    # Fall back to the copy vendored inside this integration, so setup does
-    # not depend on internet/PyPI access to pip-install a dependency.
     _VENDOR_DIR = os.path.join(os.path.dirname(__file__), "vendor")
     if _VENDOR_DIR not in sys.path:
         sys.path.append(_VENDOR_DIR)
@@ -37,11 +33,16 @@ class ModulSaktiMpptHub:
         self.server = SERVERS[server_key]
 
         self.data: dict[str, Any] = {}
-        self.available: bool = False
+        self._available: bool = False  # Menggunakan backing variable internal
         self._known_alarm_keys: set[str] = set()
         self._known_fault_keys: set[str] = set()
 
         self._client: mqtt.Client | None = None
+
+    @property
+    def available(self) -> bool:
+        """Return if the MQTT connection is active and has received data."""
+        return self._available
 
     @property
     def signal_update(self) -> str:
@@ -64,7 +65,16 @@ class ModulSaktiMpptHub:
 
     def _setup_client(self) -> None:
         client_id = f"ha_modul_sakti_{self.module_id}_{id(self)}"
-        client = mqtt.Client(client_id=client_id, clean_session=True)
+        
+        try:
+            client = mqtt.Client(
+                callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+                client_id=client_id,
+                clean_session=True
+            )
+        except AttributeError:
+            client = mqtt.Client(client_id=client_id, clean_session=True)
+            
         client.username_pw_set(self.server["username"], self.server["password"])
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
@@ -77,34 +87,59 @@ class ModulSaktiMpptHub:
         if rc == 0:
             topic = TOPIC_DATA.format(module_id=self.module_id)
             client.subscribe(topic)
-            _LOGGER.debug("Connected, subscribed to %s", topic)
-            self.available = True
-            self.hass.add_job(self._push_update)
+            _LOGGER.debug("MQTT Connected, subscribed to %s", topic)
+            # Jalankan update ketersediaan secara thread-safe di event loop HA
+            self.hass.loop.call_soon_threadsafe(self._set_availability, True)
         else:
             _LOGGER.warning("MQTT connect failed for %s, rc=%s", self.module_id, rc)
 
     def _on_disconnect(self, client, userdata, rc):
-        self.available = False
-        self.hass.add_job(self._push_update)
+        _LOGGER.warning("MQTT disconnected for %s, rc=%s", self.module_id, rc)
+        self.hass.loop.call_soon_threadsafe(self._set_availability, False)
 
     def _on_message(self, client, userdata, msg):
         try:
             payload = json.loads(msg.payload.decode("utf-8", errors="ignore"))
+            _LOGGER.debug("MQTT received payload on %s: %s", msg.topic, payload)
         except (ValueError, UnicodeDecodeError):
             _LOGGER.debug("Ignoring non-JSON payload on %s", msg.topic)
             return
-        self.hass.add_job(self._handle_payload, payload)
+            
+        # Panggil secara thread-safe ke metode async di event loop HA
+        self.hass.create_task(self.async_handle_payload(payload))
 
     # -- runs on the HA event loop -----------------------------------------
 
-    def _handle_payload(self, payload: dict[str, Any]) -> None:
-        self.data = payload
-        self.available = True
+    def _set_availability(self, available: bool) -> None:
+        """Set availability state and trigger update."""
+        self._available = available
+        async_dispatcher_send(self.hass, self.signal_update)
 
-        alarm = (payload.get("data") or {}).get("alarm") or {}
-        fault = (payload.get("data") or {}).get("fault") or {}
-        new_alarm_keys = set(alarm.keys()) - self._known_alarm_keys
-        new_fault_keys = set(fault.keys()) - self._known_fault_keys
+    async def async_handle_payload(self, payload: dict[str, Any]) -> None:
+        """Handle incoming MQTT payload inside HA Event Loop."""
+        
+        # Proteksi otomatis jika payload bertipe FLAT (tanpa bungkus "data")
+        if "data" not in payload and "device" not in payload:
+            self.data = {
+                "data": payload,
+                "device": payload
+            }
+        else:
+            self.data = payload
+
+        self._available = True
+
+        # Ambil alarm & fault secara aman
+        data_block = self.data.get("data", {})
+        alarm = data_block.get("alarm", {}) if isinstance(data_block, dict) else {}
+        fault = data_block.get("fault", {}) if isinstance(data_block, dict) else {}
+        
+        # Ekstrak keys dengan aman
+        alarm_keys = set(alarm.keys()) if isinstance(alarm, dict) else (set(alarm) if isinstance(alarm, list) else set())
+        fault_keys = set(fault.keys()) if isinstance(fault, dict) else (set(fault) if isinstance(fault, list) else set())
+
+        new_alarm_keys = alarm_keys - self._known_alarm_keys
+        new_fault_keys = fault_keys - self._known_fault_keys
 
         if new_alarm_keys or new_fault_keys:
             self._known_alarm_keys |= new_alarm_keys
@@ -115,9 +150,7 @@ class ModulSaktiMpptHub:
                 {"alarm": sorted(self._known_alarm_keys), "fault": sorted(self._known_fault_keys)},
             )
 
-        self._push_update()
-
-    def _push_update(self) -> None:
+        # Picu entitas untuk membaca ulang state terbaru
         async_dispatcher_send(self.hass, self.signal_update)
 
     def get(self, *path: str, default: Any = None) -> Any:

@@ -57,8 +57,17 @@ async def async_setup_entry(
 
     def _add_new_keys(payload: dict | None = None) -> None:
         new_entities = []
-        alarm_keys = (payload or {}).get("alarm", [])
-        fault_keys = (payload or {}).get("fault", [])
+        payload_data = payload or {}
+        
+        # Penanganan fleksibel baik payload berupa list ataupun dict keys
+        alarm_keys = payload_data.get("alarm", [])
+        if isinstance(alarm_keys, dict):
+            alarm_keys = list(alarm_keys.keys())
+            
+        fault_keys = payload_data.get("fault", [])
+        if isinstance(fault_keys, dict):
+            fault_keys = list(fault_keys.keys())
+
         for key in alarm_keys:
             uid = f"alarm_{key}"
             if uid not in added_keys:
@@ -72,9 +81,13 @@ async def async_setup_entry(
         if new_entities:
             async_add_entities(new_entities)
 
-    # In case the module already sent data before this platform loaded.
-    existing_alarm = list((hub.get("data", "alarm") or {}).keys())
-    existing_fault = list((hub.get("data", "fault") or {}).keys())
+    # PERBAIKAN: Mengambil data existing dengan aman untuk menghindari AttributeError .keys()
+    raw_alarm = hub.get("data", "alarm")
+    existing_alarm = list(raw_alarm.keys()) if isinstance(raw_alarm, dict) else (raw_alarm if isinstance(raw_alarm, list) else [])
+    
+    raw_fault = hub.get("data", "fault")
+    existing_fault = list(raw_fault.keys()) if isinstance(raw_fault, dict) else (raw_fault if isinstance(raw_fault, list) else [])
+
     if existing_alarm or existing_fault:
         _add_new_keys({"alarm": existing_alarm, "fault": existing_fault})
 
